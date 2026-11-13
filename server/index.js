@@ -2,8 +2,7 @@ import 'dotenv/config';
 import { rememberAdminOrigin } from './lib/public-url.js';
 // Forward-proxy support (#177). Self-installs an undici
 // EnvHttpProxyAgent as the global fetch dispatcher when
-// HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents)
-// are set. No-op when unset. Must import right after dotenv/config
+// HTTP_PROXY / HTTPS_PROXY / NO_PROXY (or lowercase equivalents) are set. No-op when unset. Must import right after dotenv/config
 // so any downstream module-init outbound fetch already sees it.
 import './lib/proxy-agent.js';
 import express from 'express';
@@ -31,11 +30,12 @@ import fitbitRoutes       from './routes/fitbit.js';
 import googleHealthRoutes from './routes/google-health.js';
 import withingsRoutes     from './routes/withings.js';
 import garminRoutes       from './routes/garmin.js';
+import garminPersonalRoutes from './routes/garmin-personal.js';
 import syncRoutes       from './routes/sync.js';
 import oidcRoutes       from './routes/oidc.js';
 import oidcAdminRoutes  from './routes/oidc-admin.js';
 import apiTokensRoutes  from './routes/api-tokens.js';
-import webhooksRoutes   from './routes/webhooks.js';
+import webhooksRoutes  from './routes/webhooks.js';
 import apiV1Routes      from './routes/api/v1/index.js';
 import mcpRoutes        from './routes/mcp.js';
 import nutritionImportRoutes from './routes/nutrition-import.js';
@@ -101,7 +101,7 @@ router.use(requestLogging);
 router.use('/api/data/import', express.json({ limit: '25mb' }));
 router.use('/api/sync/push',   express.json({ limit: '25mb' }));
 // Trace AI chat carries base64'd meal photos (phone camera shots inflate to
-// ~3-7 MB after base64), so its body needs more headroom than the global cap.
+// ~2-7 MB after base64), so its body needs more headroom than the global cap.
 router.use('/api/ai/chat',     express.json({ limit: '12mb' }));
 // Diary is an accumulating store — every PUT replays the full day's items,
 // each carrying the source food's nutrition object (~2 KB with full vitamins)
@@ -114,9 +114,9 @@ router.use('/api/diary',       express.json({ limit: '5mb' }));
 // repeated large requests. Anything above belongs on a per-route opt-in.
 // A picture taken with no connection travels inside the row it belongs to,
 // since there is nowhere to upload it to, and is turned into a file on
-// arrival. The web app keeps those well under a megabyte; these routes allow
-// headroom so one is never refused for its size after the person has already
-// been told it was saved.
+// arrival. The web app keeps those under a megabyte; these routes allow
+// headroom so one is never refused after the person has already been told
+// the request was saved.
 const EMBEDDED_PHOTO_LIMIT = '6mb';
 for (const path of ['/api/foods', '/api/meals', '/api/auth/profile']) {
   router.use(path, express.json({ limit: EMBEDDED_PHOTO_LIMIT }));
@@ -129,7 +129,7 @@ router.use(cookieParser());
 //   https://localhost                — legacy default before the hostname flip
 //   http://localhost                 — legacy http scheme
 //   https://app.nutritrace.local     — current app identity (see
-//                                      capacitor.config.ts for why)
+//     capacitor.config.ts for why)
 // Same-host origins are always allowed (PWA served from this instance).
 router.use((req, res, next) => {
   const origin = req.headers.origin;
@@ -164,7 +164,7 @@ const uploadsPath = process.env.UPLOADS_PATH || './uploads';
 // percent-decodes before opening the file while the router matches the raw
 // path, so /uploads/%62ackups/x.zip and /uploads//backups/x.zip read
 // straight through it. A flat 404 rather than a 401, so the response says
-// nothing about whether a given filename exists.
+// nothing about whether a filename exists.
 router.use('/uploads', (req, res, next) => {
   if (isPrivateUploadPath(req.path)) return res.status(404).json({ error: 'Not found' });
   next();
@@ -180,7 +180,7 @@ router.use('/api/proxy', proxyRoutes);
 
 router.use(authenticate);   // attach req.user on every request
 // Remember the address an admin uses, so emailed links (password reset,
-// invite, sharing) go there instead of to whatever Host a request claims.
+// invite, sharing) go there instead of whatever Host a request claims.
 router.use((req, res, next) => {
   if (req.user?.role === 'admin') rememberAdminOrigin(req);
   next();
@@ -276,6 +276,7 @@ router.use('/api/wellness/fitbit',        fitbitRoutes);
 router.use('/api/wellness/google-health', googleHealthRoutes);
 router.use('/api/wellness/withings',      withingsRoutes);
 router.use('/api/wellness/garmin',        garminRoutes);
+router.use('/api/wellness/garmin-personal', garminPersonalRoutes);
 
 // Cross-source latest wellness metric lookup. Returns the most recent
 // row for a given metric_type across all sources (Fitbit / Withings /
