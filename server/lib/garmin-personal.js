@@ -4,7 +4,7 @@ import { logger } from '../logger.js';
 
 const PERSONAL_BASE = 'https://personal.connectapi.garmin.com';
 const TOKEN_PATH = '/personalapitoken-service/personal-api/personal-api-key/token';
-const ACTIVITY_SEARCH_PATH = '/activity-service/search/activities';
+const ACTIVITY_SEARCH_PATH = '/activitylist-service/activities/search/activities';
 
 // Personal API credentials are separate from the legacy Garmin Health API
 // OAuth 1.0a tokens. The API key is encrypted at rest; the short-lived
@@ -42,7 +42,6 @@ async function _exchangeToken(apiKey) {
     method: 'POST',
     headers: {
       Authorization: `ApiKey ${apiKey}`,
-      Accept: 'application/json',
     },
   });
 
@@ -51,13 +50,14 @@ async function _exchangeToken(apiKey) {
     throw new Error(`Garmin Personal API token exchange failed (${response.status}): ${body.slice(0, 200)}`);
   }
 
-  const data = await response.json();
-  const accessToken = data.access_token || data.accessToken;
+  // Garmin returns the bearer token as plain text (a JWT), not JSON.
+  const accessToken = (await response.text()).trim();
   if (!accessToken) throw new Error('Garmin Personal API token response did not include an access token');
 
-  const expiresInSeconds = Number(data.expires_in ?? data.expiresIn ?? 86400);
-  const expiresAt = data.expires_at || data.expiresAt ||
-    new Date(Date.now() + (Number.isFinite(expiresInSeconds) ? expiresInSeconds : 86400) * 1000).toISOString();
+  // Garmin does not return a machine-readable expiry with the plain-text
+  // token. Cache it for 23 hours, leaving an hour of safety margin before
+  // the documented 24-hour token lifetime ends.
+  const expiresAt = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString();
 
   return { accessToken, expiresAt };
 }
@@ -146,14 +146,17 @@ function _mapActivity(activity) {
     durationMs: durationSeconds != null ? Math.round(Number(durationSeconds) * 1000) : null,
     distanceKm: distanceMeters != null ? +(Number(distanceMeters) / 1000).toFixed(2) : null,
     calories: calories != null ? Math.round(Number(calories)) : null,
-    avgHr: _pick(activity, ['averageHeartRateInBeatsPerMinute', 'averageHeartRate', 'avgHr', 'avgHeartRate']),
-    maxHr: _pick(activity, ['maxHeartRateInBeatsPerMinute', 'maxHeartRate', 'maxHr', 'maxHeartRate']),
+    avgHr: _pick(activity, ['averageHR', 'averageHeartRateInBeatsPerMinute', 'averageHeartRate', 'avgHr', 'avgHeartRate']),
+    maxHr: _pick(activity, ['maxHR', 'maxHeartRateInBeatsPerMinute', 'maxHeartRate', 'maxHr', 'maxHeartRate']),
     steps: _pick(activity, ['steps', 'stepCount', 'totalSteps']),
     hasGps: Boolean(_pick(activity, ['hasGps', 'hasPolyline', 'gpsData'])),
   };
 }
 
 export async function importActivities(userId, fromDate, toDate) {
+  // NOTE: Pagination is not implemented yet. This currently imports only the
+  // first page returned by Garmin. Do not present this as a complete history
+  // import until pagination is added and tested.
   const data = await personalGet(userId, ACTIVITY_SEARCH_PATH, {
     startDate: fromDate,
     endDate: toDate,

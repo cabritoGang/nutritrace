@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import db from '../db.js';
 import { wrap } from '../logger.js';
 import { requireAuth, userMgmtActive } from '../middleware/auth.js';
 import {
@@ -48,7 +47,8 @@ router.get('/activities', wrap(async (req, res) => {
   const from = req.query.from || req.query.date || today;
   const to = req.query.to || req.query.date || today;
 
-  const activities = await personalGet(uid(req), '/activity-service/search/activities', {
+  // NOTE: Pagination is not implemented yet; this returns only the first page.
+  const activities = await personalGet(uid(req), '/activitylist-service/activities/search/activities', {
     startDate: from,
     endDate: to,
   });
