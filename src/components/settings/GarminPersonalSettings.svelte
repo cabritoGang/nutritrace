@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { NtApi } from '../../lib/api.js';
-  import { garminPersonalEnabled, workoutsEnabled } from '../../stores/settings.js';
+  import { _applySetting, garminPersonalEnabled, workoutsEnabled } from '../../stores/settings.js';
 
   function setWorkoutVisibility(event) {
     const enabled = event.currentTarget.checked;
@@ -15,6 +15,61 @@
   let message = '';
   let failed = false;
   let rows = [];
+  let importActivitiesEnabled = true;
+  let importEnergyEnabled = false;
+  let optionsDirty = false;
+  let budgetEnabled = false;
+  let savedBudgetEnabled = false;
+  let budgetDirty = false;
+  let budgetLoaded = false;
+
+  function readBudgetOptions(options) {
+    if (typeof options?.useEnergyForBudget !== 'boolean') {
+      throw new Error('Unexpected Garmin budget-options response');
+    }
+    _applySetting('garminPersonalUseEnergyForBudget', options.useEnergyForBudget);
+    budgetEnabled = options.useEnergyForBudget;
+    savedBudgetEnabled = budgetEnabled;
+    budgetDirty = false;
+    budgetLoaded = true;
+  }
+
+  async function saveBudgetOptions() {
+    if (!budgetLoaded) throw new Error('Load budget settings first');
+    const result = await NtApi.post(
+      '/api/wellness/garmin-personal/budget-options',
+      { useEnergyForBudget: budgetEnabled }
+    );
+    if (result?.ok !== true) throw new Error('Budget option was not saved');
+    readBudgetOptions(result.budgetOptions);
+    status = { ...status, budgetOptions: result.budgetOptions };
+    message = 'Budget option saved. No data was imported. ' +
+      'Reload Diary to refresh its budget calculations.';
+  }
+
+  function readImportOptions(options) {
+    if (typeof options?.activities !== 'boolean' ||
+        typeof options?.energy !== 'boolean') {
+      throw new Error('Unexpected Garmin import-options response');
+    }
+    importActivitiesEnabled = options.activities;
+    importEnergyEnabled = options.energy;
+  }
+
+  async function saveImportOptions() {
+    const result = await NtApi.post(
+      '/api/wellness/garmin-personal/import-options',
+      {
+        activities: importActivitiesEnabled,
+        energy: importEnergyEnabled
+      }
+    );
+    if (result?.ok !== true) throw new Error('Import options were not saved');
+    readImportOptions(result.importOptions);
+    optionsDirty = false;
+    status = { ...status, importOptions: result.importOptions };
+    message = 'Import options saved. Existing imported records are retained.';
+  }
 
   const now = new Date();
   let selectedDate = [
@@ -25,6 +80,8 @@
 
   async function refresh() {
     status = await NtApi.get('/api/wellness/garmin-personal/status');
+    if (!optionsDirty) readImportOptions(status.importOptions);
+    if (!budgetDirty) readBudgetOptions(status.budgetOptions);
     const result = await NtApi.get(
       '/api/wellness/fitbit/workouts?date=' + encodeURIComponent(selectedDate)
     );
@@ -66,15 +123,34 @@
 
   async function sync() {
     if (!selectedDate) throw new Error('Select a date first');
+    if (optionsDirty) throw new Error('Save import options before syncing');
+    if (!importActivitiesEnabled && !importEnergyEnabled) {
+      throw new Error('Select at least one import category and save it first');
+    }
     const result = await NtApi.post('/api/wellness/garmin-personal/sync', {
       from: selectedDate,
       to: selectedDate
     });
     await refresh();
-    if (result.errors?.length) {
-      throw new Error('Some activities failed to import. Inspect the test logs.');
+    const details = [];
+    if (result.categories?.activities) {
+      const activity = result.categories.activities;
+      details.push(activity.ok
+        ? `Activities processed: ${activity.imported ?? 0}`
+        : 'Activity import failed');
     }
-    message = `Processed ${result.imported ?? 0} activities for ${selectedDate}.`;
+    if (result.categories?.energy) {
+      const energy = result.categories.energy;
+      details.push(energy.ok
+        ? `Energy days: ${energy.importedDays ?? 0}; metric rows: ${energy.metricRows ?? 0}`
+        : 'Daily-energy import failed');
+    }
+    if (result.errors?.length || result.ok === false) {
+      failed = true;
+      message = `${details.join('. ')}. Some selected data could not be imported.`;
+      return;
+    }
+    message = `${details.join('. ')}. Date: ${selectedDate}.`;
   }
 
   async function disconnect() {
@@ -98,10 +174,10 @@
 <div class="card settings-card">
   <div class="setting-row">
     <div>
-      <span class="setting-label">Garmin Personal API — Activities</span>
+      <span class="setting-label">Garmin Personal API</span>
       <div class="setting-desc">
-        Personal activity import. Separate from the Garmin Health API integration.
-        This version does not import daily wellness totals.
+        Choose which supported data to import.
+        Separate from the Garmin Health API integration.
       </div>
     </div>
   </div>
@@ -116,8 +192,8 @@
       Show imported workouts in Wellness
     </label>
     <div class="setting-desc">
-      Enables workout history. Daily wellness metrics are not imported.
-      Previously imported workouts remain available after disconnecting.
+      Controls workout visibility, not import permission.
+      Previously imported records remain after disconnecting.
     </div>
     <div>
       Connection:
@@ -157,8 +233,89 @@
       >Disconnect</button>
     </div>
 
+    <fieldset disabled={busy || status === null}
+      style="border:1px solid var(--border);padding:12px">
+      <legend>Data to import</legend>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <input type="checkbox"
+          bind:checked={importActivitiesEnabled}
+          on:change={() => { optionsDirty = true; }} />
+        Import activities
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <input type="checkbox"
+          bind:checked={importEnergyEnabled}
+          on:change={() => { optionsDirty = true; }} />
+        Import daily energy
+      </label>
+      <div class="setting-desc">
+        Daily energy includes resting, active and total expenditure.
+        Import choices do not delete existing records or grant Garmin-side
+        API permissions. Calorie-budget participation is controlled
+        separately below.
+      </div>
+      <button type="button" class="btn" class:btn-primary={optionsDirty}
+        disabled={busy || !optionsDirty}
+        on:click={() => run(saveImportOptions)}
+      >Save Import Options</button>
+      {#if optionsDirty}
+        <p role="status">Unsaved import options. Save before syncing.</p>
+      {/if}
+    </fieldset>
+
+    <fieldset disabled={busy || !budgetLoaded}
+      style="border:1px solid var(--border);padding:12px">
+      <legend>Calorie-budget participation</legend>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <input type="checkbox"
+          bind:checked={budgetEnabled}
+          on:change={event => {
+            budgetDirty = event.currentTarget.checked !== savedBudgetEnabled;
+          }} />
+        Allow Garmin Personal daily energy in calorie-budget calculations
+      </label>
+      <div class="setting-desc">
+        Off by default. Applies to already-imported energy as well as future
+        imports; saving this option does not import data or change import choices.
+      </div>
+      <ul class="setting-desc">
+        <li>
+          Fixed targets: active energy is eligible only when the separate
+          Diary activity-budget adjustment is enabled. Its manual/wearable
+          combination policy still applies.
+        </li>
+        <li>
+          Dynamic targets: the previous day's total expenditure is eligible.
+          One expenditure source is selected, not summed with other wearables;
+          existing source priority and the LiftTrace override still apply.
+        </li>
+        <li>
+          Dynamic and adaptive targets receive no separate activity top-up.
+          This option does not directly change the adaptive TDEE estimate.
+        </li>
+        <li>
+          Server-side calculations only. Garmin Personal budget participation
+          is not supported in native standalone/local mode.
+        </li>
+      </ul>
+      <div class="setting-desc">
+        Turning this off excludes Garmin Personal from those calculations;
+        it does not delete imported records. Turning off imports or
+        disconnecting does not turn this budget option off.
+      </div>
+      <button type="button" class="btn" class:btn-primary={budgetDirty}
+        disabled={busy || !budgetLoaded || !budgetDirty}
+        on:click={() => run(saveBudgetOptions)}
+      >Save Budget Option</button>
+      {#if budgetDirty}
+        <p role="status">
+          Unsaved budget option. Current calculations still use the saved value.
+        </p>
+      {/if}
+    </fieldset>
+
     <label>
-      Activity date
+      Import date
       <input
         class="input"
         type="date"
@@ -177,7 +334,8 @@
       <button
         type="button"
         class="btn btn-primary"
-        disabled={busy || !selectedDate || !status?.connected}
+        disabled={busy || !selectedDate || !status?.connected ||
+          optionsDirty || (!importActivitiesEnabled && !importEnergyEnabled)}
         on:click={() => run(sync)}
       >Sync Selected Day</button>
     </div>

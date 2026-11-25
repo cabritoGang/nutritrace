@@ -58,6 +58,8 @@ export const USER_PREFS = new Set([
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
   'wellnessEnabled','garminPersonalEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'garminPersonalImportActivities','garminPersonalImportEnergy',
+  'garminPersonalUseEnergyForBudget',
   'mirrorWellnessWeight',
   'lifttraceOverlapFill',
   'wellnessSyncRange',
@@ -845,6 +847,10 @@ export const bannerAnimation      = createSettingStore('bannerAnimation', 'shimm
 // Wellness (Activity Tracking)
 export const wellnessEnabled    = createSettingStore('wellnessEnabled',    false);
 export const garminPersonalEnabled = createSettingStore('garminPersonalEnabled', false);
+// Import choices are separate from visibility and budget participation.
+export const garminPersonalImportActivities = createSettingStore('garminPersonalImportActivities', true);
+export const garminPersonalImportEnergy = createSettingStore('garminPersonalImportEnergy', false);
+export const garminPersonalUseEnergyForBudget = createSettingStore('garminPersonalUseEnergyForBudget', false);
 export const fitbitEnabled      = createSettingStore('fitbitEnabled',      false);
 export const googleHealthEnabled = createSettingStore('googleHealthEnabled', false);
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
@@ -1039,4 +1045,12 @@ export const envLocks = writable({ smtp: false, ai: false, ai_enabled: false, of
 export const aiEffectivelyEnabled = derived(
   [aiEnabled, envLocks],
   ([$aiEnabled, $envLocks]) => !!$aiEnabled || (!!$envLocks.ai && !!$envLocks.ai_enabled)
+);
+
+// Dynamic-goal eligibility is separate from visibility and import choices.
+// Garmin Personal is browser-only until native expenditure support exists.
+export const dynamicGoalSourceEnabled = derived(
+  [fitbitFamilyEnabled, garminEnabled, garminPersonalUseEnergyForBudget],
+  ([$family, $garmin, $personalBudget]) =>
+    !!($family || $garmin || (!isNative && $personalBudget === true))
 );

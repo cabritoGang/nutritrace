@@ -16,6 +16,7 @@
   import HealthConnectIcon from '../components/icons/HealthConnectIcon.svelte';
   import WithingsIcon from '../components/icons/WithingsIcon.svelte';
   import GarminIcon from '../components/icons/GarminIcon.svelte';
+  import GarminPersonalEnergy from '../components/diary/GarminPersonalEnergy.svelte';
 
   // ── Metric definitions ─────────────────────────────────────────────────────
   // sources: which integrations can supply this metric. Used to hide metrics
@@ -1740,6 +1741,8 @@
 
           <!-- ── Activity tab ── -->
           {#if activeTab === 'activity'}
+            <GarminPersonalEnergy date={dateStr} />
+
             <div class="metric-grid">
               {#each ALL_METRICS.filter(m => m.group === 'activity' && isVisible(m.id) && isSourceEnabled(m)) as m}
                 {@const fmt = fmtMetric(m, displayData[m.id])}

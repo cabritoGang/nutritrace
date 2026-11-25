@@ -2279,9 +2279,12 @@ export async function dbGetActivityRange(from, to) {
 // Highest single-source value to avoid double-counting when multiple sources exist.
 export async function dbWearableActiveCalories(date) {
   const db = await getDb();
+  // Native-local Garmin Personal budget opt-in is not implemented.
+  // Imported/synced Personal energy must remain reference-only here.
   const r = await db.query(
     `SELECT MAX(value) AS v FROM wellness_data
-      WHERE user_id = ? AND date = ? AND metric_type = 'active_calories'`,
+      WHERE user_id = ? AND date = ? AND metric_type = 'active_calories'
+        AND (source IS NULL OR source <> 'garmin_personal')`,
     [LOCAL_USER_ID, date]
   );
   const row = _row(r);

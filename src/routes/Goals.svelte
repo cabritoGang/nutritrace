@@ -1,4 +1,5 @@
 <script>
+  import { dynamicGoalSourceEnabled } from '../stores/settings.js';
   import { closeOnBack } from '../lib/back-stack.js';
   import { onMount, tick } from 'svelte';
   import { slide } from 'svelte/transition';
@@ -22,7 +23,7 @@
   // Mirror settings/Goals.svelte: any wearable that reports calorie burn
   // unlocks Dynamic mode. Uses the shared derived fitbitFamilyEnabled so
   // adding a new source doesn't silently disable the button.
-  $: _hasWearable = $fitbitFamilyEnabled || $garminEnabled;
+  $: _hasWearable = $dynamicGoalSourceEnabled;
 
   const BODY_STATS = [
     { id: 'weight',     label: 'Weight',     isBody: true },
@@ -737,6 +738,11 @@
         <button class="seg-opt" class:seg-active={$calorieGoalMode === 'adaptive'}
           on:click={() => calorieGoalMode.set('adaptive')}>{$_('settings_goals.mode_adaptive')}</button>
       </div>
+      {#if $calorieGoalMode === 'dynamic' && !_hasWearable}
+        <p class="text-3 text-sm" style="margin:8px 0 0;line-height:1.4">
+          Dynamic is selected but currently unavailable, so your fixed calorie goal is being used. Your saved choice is kept.
+        </p>
+      {/if}
       {#if $calorieGoalMode === 'dynamic' || $calorieGoalMode === 'adaptive'}
         <div class="goals-rail-heading" style="margin-top:12px">{$_('settings_goals.goal_factor')}</div>
         <div class="seg-control goals-rail-seg" style="--seg-count:3;--seg-active:{$calorieGoalFactor === 0.8 ? 0 : $calorieGoalFactor === 1.2 ? 2 : 1}">

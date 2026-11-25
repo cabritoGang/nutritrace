@@ -1,4 +1,5 @@
 <script>
+  import { dynamicGoalSourceEnabled } from '../../stores/settings.js';
   import { _ } from 'svelte-i18n';
   import {
     calorieGoalMode, calorieGoalFactor,
@@ -9,7 +10,7 @@
   // unlocks Dynamic mode. Uses the shared derived fitbitFamilyEnabled so adding
   // a new source (e.g. future Polar/Suunto) doesn't silently leave the button
   // disabled for users of that source.
-  $: _hasWearable = $fitbitFamilyEnabled || $garminEnabled;
+  $: _hasWearable = $dynamicGoalSourceEnabled;
 </script>
 
 <div class="section-body">
@@ -32,6 +33,11 @@
       {#if !_hasWearable}
         <p class="setting-desc" style="padding:4px 0 0;font-size:12px;line-height:1.4">
           {$_('settings_goals.dynamic_needs_wearable')} <a href="#/settings/wellness" class="about-link">{$_('settings_goals.dynamic_needs_wearable_setup')}</a>.
+        </p>
+      {/if}
+      {#if $calorieGoalMode === 'dynamic' && !_hasWearable}
+        <p class="setting-desc" style="padding:4px 0 0;font-size:12px;line-height:1.4">
+          Dynamic is selected but currently unavailable, so your fixed calorie goal is being used. Your saved choice is kept and applies again when a supported source is available.
         </p>
       {/if}
     </div>
