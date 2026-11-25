@@ -1,5 +1,21 @@
 import db from '../db.js';
 
+// Imported Garmin Personal energy is excluded from budget calculations
+// unless the user explicitly opts in. Import/display choices are separate.
+function garminPersonalBudgetEnabled(userId) {
+  const row = db.prepare(`
+    SELECT value FROM user_settings
+    WHERE user_id = ? AND key = 'garminPersonalUseEnergyForBudget'
+      AND deleted_at IS NULL
+  `).get(userId ?? 0);
+  try {
+    return JSON.parse(row?.value ?? 'false') === true;
+  } catch {
+    return false;
+  }
+}
+
+
 // Sum manually-logged activity calories for a user on a given date.
 // Returns an integer; 0 if no entries.
 export function sumManualActivity(userId, date) {
@@ -18,14 +34,18 @@ export function sumManualActivity(userId, date) {
 // Picks the highest single-source value to avoid double-counting when
 // multiple integrations are connected (Fitbit + Garmin etc).
 export function wearableActiveCalories(userId, date) {
+  const allowPersonal = garminPersonalBudgetEnabled(userId) ? 1 : 0;
   const sql = userId == null
     ? `SELECT MAX(value) AS v FROM wellness_data
-        WHERE user_id IS NULL AND date = ? AND metric_type = 'active_calories'`
+        WHERE (user_id IS NULL OR user_id = 0)
+          AND date = ? AND metric_type = 'active_calories'
+          AND (source <> 'garmin_personal' OR ? = 1)`
     : `SELECT MAX(value) AS v FROM wellness_data
-        WHERE user_id = ? AND date = ? AND metric_type = 'active_calories'`;
+        WHERE user_id = ? AND date = ? AND metric_type = 'active_calories'
+          AND (source <> 'garmin_personal' OR ? = 1)`;
   const row = userId == null
-    ? db.prepare(sql).get(date)
-    : db.prepare(sql).get(userId, date);
+    ? db.prepare(sql).get(date, allowPersonal)
+    : db.prepare(sql).get(userId, date, allowPersonal);
   return row?.v != null ? Math.max(0, Math.round(row.v)) : 0;
 }
 

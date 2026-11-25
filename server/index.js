@@ -308,8 +308,11 @@ router.get('/api/wellness/latest', (req, res) => {
 // Cross-source calories_out lookup — for Dynamic Calorie Goal
 // Returns yesterday's merged TDEE from fitbit/garmin/health_connect/lifttrace
 router.get('/api/wellness/calories-out', (req, res) => {
-  const userId = req.user?.id;
-  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+  const managed = userMgmtActive();
+  const userId = managed ? req.user?.id : 0;
+  if (managed && userId == null) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   const { date } = req.query;
   // date param = the diary date; we want the day before
   const base = date ? new Date(date + 'T12:00:00Z') : new Date();
@@ -322,13 +325,33 @@ router.get('/api/wellness/calories-out', (req, res) => {
   // users flip that: when OFF, LT wins over wearables (use this if your
   // wearable misses lifting sessions and you trust LT's estimate more).
   const overlapFill = _readBoolSetting(userId, 'lifttraceOverlapFill', true);
+  const personalBudget = _readBoolSetting(
+    userId, 'garminPersonalUseEnergyForBudget', false
+  );
+  // Select one full-day expenditure source; never sum wearable totals.
+  // Preserve legacy Garmin precedence and the existing LiftTrace override.
+  const wearablePriority = [
+    'garmin',
+    ...(personalBudget ? ['garmin_personal'] : []),
+    'health_connect',
+    'fitbit',
+  ];
   const PRIORITY = overlapFill
-    ? ['garmin', 'health_connect', 'fitbit', 'lifttrace']
-    : ['lifttrace', 'garmin', 'health_connect', 'fitbit'];
-  const rows = db.prepare(
-    `SELECT source, value FROM wellness_data
-     WHERE user_id=? AND date=? AND metric_type='calories_out'`
-  ).all(userId, yesterday);
+    ? [...wearablePriority, 'lifttrace']
+    : ['lifttrace', ...wearablePriority];
+  // Only single-user mode combines the legacy NULL and 0 owners.
+  // Authenticated accounts always read their exact user ID.
+  const rows = managed
+    ? db.prepare(
+        `SELECT source, value FROM wellness_data
+         WHERE user_id=? AND date=? AND metric_type='calories_out'`
+      ).all(userId, yesterday)
+    : db.prepare(
+        `SELECT source, value FROM wellness_data
+         WHERE (user_id IS NULL OR user_id = 0)
+           AND date=? AND metric_type='calories_out'
+         ORDER BY CASE WHEN user_id = 0 THEN 0 ELSE 1 END`
+      ).all(yesterday);
   let result = null;
   for (const src of PRIORITY) {
     const row = rows.find(r => r.source === src);
@@ -338,7 +361,7 @@ router.get('/api/wellness/calories-out', (req, res) => {
 });
 
 function _readBoolSetting(userId, key, defaultValue) {
-  const row = db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = ?`).get(userId, key);
+  const row = db.prepare(`SELECT value FROM user_settings WHERE user_id = ? AND key = ? AND deleted_at IS NULL`).get(userId, key);
   if (!row || row.value == null) return defaultValue;
   try {
     const v = JSON.parse(row.value);
