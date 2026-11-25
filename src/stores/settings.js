@@ -57,7 +57,7 @@ export const USER_PREFS = new Set([
   'usdaEnabled','usdaApiKey','offUsername','offPassword',
   'mealieEnabled','mealieBaseUrl','mealieApiToken',
   'cooktraceEnabled','cooktraceBaseUrl','cooktraceApiToken',
-  'wellnessEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
+  'wellnessEnabled','garminPersonalEnabled','fitbitEnabled','googleHealthEnabled','healthConnectEnabled','wellnessMetrics','workoutsEnabled',
   'mirrorWellnessWeight',
   'lifttraceOverlapFill',
   'wellnessSyncRange',
@@ -844,6 +844,7 @@ export const bannerAnimation      = createSettingStore('bannerAnimation', 'shimm
 
 // Wellness (Activity Tracking)
 export const wellnessEnabled    = createSettingStore('wellnessEnabled',    false);
+export const garminPersonalEnabled = createSettingStore('garminPersonalEnabled', false);
 export const fitbitEnabled      = createSettingStore('fitbitEnabled',      false);
 export const googleHealthEnabled = createSettingStore('googleHealthEnabled', false);
 export const healthConnectEnabled = createSettingStore('healthConnectEnabled', false);
@@ -919,8 +920,8 @@ export const fitbitFamilyEnabled = derived(
   ([$fitbit, $gh, $hc]) => $fitbit || $gh || $hc
 );
 export const anyWellnessSourceEnabled = derived(
-  [fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled],
-  ([$fitbit, $garmin, $withings, $gh, $hc]) => $fitbit || $garmin || $withings || $gh || $hc
+  [fitbitEnabled, garminEnabled, withingsEnabled, googleHealthEnabled, healthConnectEnabled, garminPersonalEnabled],
+  ([$fitbit, $garmin, $withings, $gh, $hc, $personal]) => $fitbit || $garmin || $withings || $gh || $hc || $personal
 );
 
 export const healthConnectSyncMode         = createSettingStore('healthConnectSyncMode',         null);

@@ -506,17 +506,7 @@
         const { dbGetWorkouts } = await import('../lib/db-native.js');
         _workouts = await dbGetWorkouts(dateStr, dateStr);
       } else {
-        const [fitbitResult, garminResult] = await Promise.allSettled([
-          NtApi.get(`/api/wellness/fitbit/workouts?date=${dateStr}`),
-          NtApi.get(`/api/wellness/fitbit/workouts?date=${dateStr}`),
-        ]);
-        const fitbitWorkouts = Array.isArray(fitbitResult.value)
-          ? fitbitResult.value
-          : [];
-        const garminWorkouts = Array.isArray(garminResult.value)
-          ? garminResult.value.filter((w) => w.source === 'garmin_personal')
-          : [];
-        _workouts = [...fitbitWorkouts, ...garminWorkouts];
+        _workouts = await NtApi.get(`/api/wellness/fitbit/workouts?date=${dateStr}`);
       }
     } catch (e) {
       console.warn('[wellness] load workouts failed:', e.message);
@@ -524,7 +514,7 @@
     }
     _workoutsLoaded = true;
     // If no workouts found and we haven't synced yet, trigger initial sync in background
-    if (_workouts.length === 0 && !_workoutsSyncedOnce) {
+    if (_workouts.length === 0 && !_workoutsSyncedOnce && status?.connected) {
       _workoutsSyncedOnce = true;
       console.log('[wellness] no workouts found, triggering initial sync');
       syncWorkouts();
@@ -580,6 +570,7 @@
 
   async function syncWorkouts() {
     if (!$workoutsEnabled) { console.log('[wellness] syncWorkouts skipped: not enabled'); return; }
+    if (!status?.connected) return;
     console.log('[wellness] syncWorkouts starting');
     try {
       const range = $wellnessSyncRange || 7;
@@ -602,12 +593,13 @@
     _workoutGps = w.gps_data || null;
     _showWorkoutDetail = true;
     // Fetch GPS if has_gps but no cached data
-    if (w.has_gps && !w.gps_data && w.source_id) {
+    if (w.source !== 'garmin_personal' && w.has_gps && !w.gps_data && w.source_id) {
       _loadGpsData(w);
     }
   }
 
   async function _loadGpsData(w) {
+    if (w.source === 'garmin_personal') return;
     _loadingGps = true;
     try {
       const result = await NtApi.post(`/api/wellness/fitbit/workouts/${w.source_id}/gps`);
@@ -1006,7 +998,7 @@
   $: if (activeTab === 'sleep' && !_insightsLoaded) loadSleepInsights();
 
   // ── Integration availability ───────────────────────────────────────────────
-  import { healthConnectEnabled, workoutsEnabled, energyUnit } from '../stores/settings.js';
+  import { healthConnectEnabled, workoutsEnabled, energyUnit, garminPersonalEnabled } from '../stores/settings.js';
   import { Nutrition } from '../lib/nutrition.js';
   $: fitbitAvailable   = $fitbitEnabled;
   $: withingsAvailable = $withingsEnabled;
@@ -1017,7 +1009,7 @@
   // managed from the Android app (Settings → Wellness card is gated by
   // isNative); the web just reflects whatever the user enabled there.
   $: healthConnectAvailable = $healthConnectEnabled;
-  $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable;
+  $: anyAvailable      = fitbitAvailable || withingsAvailable || garminAvailable || healthConnectAvailable || $garminPersonalEnabled;
   // Count the number of enabled providers so the left-rail can
   // hide its 'Providers' heading when there's only one — no need
   // for a section caption above a single lonely row.
@@ -1027,7 +1019,9 @@
   // Sliding pill: ordered list of visible tabs + active index
   // Garmin contributes to activity/sleep/heart tabs alongside Fitbit
   $: _wlTabList = [
-    ...(fitbitAvailable || garminAvailable || healthConnectAvailable ? ['activity', 'sleep', 'heart'] : []),
+    ...(fitbitAvailable || garminAvailable || healthConnectAvailable
+      ? ['activity', 'sleep', 'heart']
+      : $garminPersonalEnabled ? ['activity'] : []),
     ...(withingsAvailable ? ['body'] : []),
   ];
   $: _wlActiveIdx  = Math.max(0, _wlTabList.indexOf(activeTab));
@@ -1051,8 +1045,10 @@
   // Auto-correct activeTab when an integration's availability changes
   $: if (status !== null && withingsStatus !== null && garminStatus !== null) {
     const isActivityTab = activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart';
-    if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) activeTab = withingsAvailable ? 'body' : 'activity';
-    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable) ? 'activity' : 'body';
+    if (isActivityTab && !fitbitAvailable && !garminAvailable && !healthConnectAvailable) {
+      activeTab = $garminPersonalEnabled ? 'activity' : withingsAvailable ? 'body' : 'activity';
+    }
+    if (activeTab === 'body' && !withingsAvailable && !healthConnectAvailable) activeTab = (fitbitAvailable || garminAvailable || healthConnectAvailable || $garminPersonalEnabled) ? 'activity' : 'body';
   }
 
   // ── Date navigation ────────────────────────────────────────────────────────
@@ -1153,7 +1149,7 @@
     // Google-Health-only or HC-only user landed on a blank Wellness tab
     // and had to flip to Yesterday and back to trigger loadData via the
     // prevDay/nextDay path.
-    if (status.connected || garminStatus?.connected || $fitbitFamilyEnabled) {
+    if (status.connected || garminStatus?.connected || $fitbitFamilyEnabled || $garminPersonalEnabled) {
       await loadData(); // loadData already calls loadWorkouts()
       if (isToday) {
         const key = `wl_wellness_lastSync_${dateStr}`;
@@ -1675,10 +1671,12 @@
       <div class="tab-bar-wrap">
       <div class="tab-bar" bind:this={_tabBarEl}>
         <div class="tab-pill" style="left:{_wlPillLeft};width:{_wlPillWidth}"></div>
-        {#if fitbitAvailable || garminAvailable || healthConnectAvailable}
+        {#if fitbitAvailable || garminAvailable || healthConnectAvailable || $garminPersonalEnabled}
           <button class="tab-btn" class:active={activeTab === 'activity'} on:click={() => activeTab = 'activity'}>
             <span class="material-symbols-rounded tab-icon">directions_walk</span> {$_('wellness_page.chip.activity')}
           </button>
+        {/if}
+        {#if fitbitAvailable || garminAvailable || healthConnectAvailable}
           <button class="tab-btn" class:active={activeTab === 'sleep'} on:click={() => activeTab = 'sleep'}>
             <span class="material-symbols-rounded tab-icon">bedtime</span> {$_('wellness_page.chip.sleep')}
           </button>
@@ -1698,7 +1696,7 @@
       <!-- ── Fitbit tabs (Activity / Sleep / Heart) ── -->
       {#if activeTab === 'activity' || activeTab === 'sleep' || activeTab === 'heart'}
 
-        {#if !status.connected && !garminStatus?.connected && !withingsStatus?.connected && !$fitbitFamilyEnabled && !(isNative && _hasLocalData)}
+        {#if !status.connected && !garminStatus?.connected && !withingsStatus?.connected && !$fitbitFamilyEnabled && !$garminPersonalEnabled && !(isNative && _hasLocalData)}
           <!-- Fitbit configured but not yet connected -->
           {#if !status.configured}
             <div class="connect-card">
@@ -2172,7 +2170,7 @@
           {/if}
 
           <!-- Empty state for activity tabs -->
-          {#if !loadingData && Object.keys(displayData).length === 0}
+          {#if !loadingData && Object.keys(displayData).length === 0 && !(activeTab === 'activity' && $workoutsEnabled && _workouts.length > 0)}
             <div class="empty-state">
               <span class="material-symbols-rounded" style="font-size:48px;opacity:0.18">monitor_heart</span>
               <p>No data for {isToday ? 'today' : fmtDate(dateStr)}.</p>

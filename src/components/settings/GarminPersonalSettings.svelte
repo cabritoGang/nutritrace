@@ -1,6 +1,13 @@
 <script>
   import { onMount } from 'svelte';
   import { NtApi } from '../../lib/api.js';
+  import { garminPersonalEnabled, workoutsEnabled } from '../../stores/settings.js';
+
+  function setWorkoutVisibility(event) {
+    const enabled = event.currentTarget.checked;
+    if (enabled) workoutsEnabled.set(true);
+    garminPersonalEnabled.set(enabled);
+  }
 
   let status = null;
   let apiKey = '';
@@ -100,6 +107,18 @@
   </div>
 
   <div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:12px">
+    <label style="display:flex;align-items:center;gap:8px">
+      <input
+        type="checkbox"
+        checked={$garminPersonalEnabled}
+        on:change={setWorkoutVisibility}
+      />
+      Show imported workouts in Wellness
+    </label>
+    <div class="setting-desc">
+      Enables workout history. Daily wellness metrics are not imported.
+      Previously imported workouts remain available after disconnecting.
+    </div>
     <div>
       Connection:
       {status === null ? 'Not loaded' : status.connected ? 'Connected' : 'Not connected'}

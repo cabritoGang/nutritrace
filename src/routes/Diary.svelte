@@ -19,6 +19,7 @@
   import ActivityImpactWidget from '../components/diary/ActivityImpactWidget.svelte';
   import WeekStrip           from '../components/diary/WeekStrip.svelte';
   import AddActivitySheet from '../components/diary/AddActivitySheet.svelte';
+  import ImportedGarminWorkouts from '../components/diary/ImportedGarminWorkouts.svelte';
   import QuickCaloriesSheet from '../components/diary/QuickCaloriesSheet.svelte';
   import FastingWidget from '../components/diary/FastingWidget.svelte';
   import { mealIcon } from '../lib/mealIcon.js';
@@ -2418,6 +2419,8 @@
             <span class="material-symbols-rounded">add</span>
           </button>
         </div>
+
+        <ImportedGarminWorkouts date={$currentDate} />
 
         {#if acts.length === 0}
           <button type="button" class="meal-empty" on:click={() => { editingActivity = null; showActivitySheet = true; }} aria-label={$_('diary.activity.add')}>
