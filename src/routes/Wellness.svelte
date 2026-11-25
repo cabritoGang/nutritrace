@@ -506,7 +506,17 @@
         const { dbGetWorkouts } = await import('../lib/db-native.js');
         _workouts = await dbGetWorkouts(dateStr, dateStr);
       } else {
-        _workouts = await NtApi.get(`/api/wellness/fitbit/workouts?date=${dateStr}`);
+        const [fitbitResult, garminResult] = await Promise.allSettled([
+          NtApi.get(`/api/wellness/fitbit/workouts?date=${dateStr}`),
+          NtApi.get(`/api/wellness/fitbit/workouts?date=${dateStr}`),
+        ]);
+        const fitbitWorkouts = Array.isArray(fitbitResult.value)
+          ? fitbitResult.value
+          : [];
+        const garminWorkouts = Array.isArray(garminResult.value)
+          ? garminResult.value.filter((w) => w.source === 'garmin_personal')
+          : [];
+        _workouts = [...fitbitWorkouts, ...garminWorkouts];
       }
     } catch (e) {
       console.warn('[wellness] load workouts failed:', e.message);
