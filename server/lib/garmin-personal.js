@@ -42,6 +42,7 @@ async function _exchangeToken(apiKey) {
     method: 'POST',
     headers: {
       Authorization: `ApiKey ${apiKey}`,
+      Accept: 'text/plain',
     },
   });
 
@@ -50,15 +51,31 @@ async function _exchangeToken(apiKey) {
     throw new Error(`Garmin Personal API token exchange failed (${response.status}): ${body.slice(0, 200)}`);
   }
 
-  // Garmin returns the bearer token as plain text (a JWT), not JSON.
   const accessToken = (await response.text()).trim();
-  if (!accessToken) throw new Error('Garmin Personal API token response did not include an access token');
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(accessToken)) {
+    throw new Error('Garmin Personal API returned an unexpected token format');
+  }
 
-  // Garmin does not return a machine-readable expiry with the plain-text
-  // token. Cache it for 23 hours, leaving an hour of safety margin before
-  // the documented 24-hour token lifetime ends.
-  const expiresAt = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString();
+  // Decode expiry only as a cache hint, not as signature verification.
+  // The token comes directly from Garmin over HTTPS.
+  const cacheLimit = Date.now() + 23 * 60 * 60 * 1000;
+  let expiryMs = cacheLimit;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(accessToken.split('.')[1], 'base64url').toString('utf8')
+    );
+    if (typeof payload.exp === 'number' && Number.isFinite(payload.exp)) {
+      expiryMs = Math.min(cacheLimit, payload.exp * 1000);
+    }
+  } catch {
+    throw new Error('Garmin Personal API returned an unreadable token payload');
+  }
 
+  if (expiryMs <= Date.now() + 60_000) {
+    throw new Error('Garmin Personal API returned an expired or nearly expired token');
+  }
+
+  const expiresAt = new Date(expiryMs).toISOString();
   return { accessToken, expiresAt };
 }
 
