@@ -450,7 +450,8 @@
 
   // Dynamic calorie goal — fetch yesterday's calories_out when mode = 'dynamic'
   let _dynamicCaloriesOut = null;   // raw burn from device (yesterday)
-  let _dynamicGoalDate    = null;   // which diary date we fetched for
+  let _dynamicGoalDate    = null;   // requested/cached diary date
+  let _dynamicGoalRequest = 0;      // invalidates outdated responses
   // Adaptive TDEE — server-computed; cached once per page load
   let _adaptiveTdee = null;
   // #203: resolve per-weekday when the user has "different target per
@@ -463,14 +464,43 @@
        : ($calorieGoalMode === 'adaptive' && _adaptiveTdee != null)
          ? Math.round(_adaptiveTdee * $calorieGoalFactor)
        : _fixedGoal;
+  function _clearDynamicGoal() {
+    _dynamicGoalRequest++;
+    _dynamicGoalDate = null;
+    _dynamicCaloriesOut = null;
+  }
+
   async function _loadDynamicGoal(date) {
-    if ($calorieGoalMode !== 'dynamic') return;
+    if ($calorieGoalMode !== 'dynamic' || !date) return;
     if (_dynamicGoalDate === date) return;
+
+    const request = ++_dynamicGoalRequest;
     _dynamicGoalDate = date;
+    _dynamicCaloriesOut = null;
+
+    const isCurrent = () =>
+      request === _dynamicGoalRequest &&
+      $calorieGoalMode === 'dynamic' &&
+      $currentDate === date;
+
     try {
-      const r = await NtApi.get(`/api/wellness/calories-out?date=${date}`);
-      _dynamicCaloriesOut = r.calories_out;
-    } catch { _dynamicCaloriesOut = null; }
+      const r = await NtApi.get(
+        `/api/wellness/calories-out?date=${encodeURIComponent(date)}`
+      );
+      if (!isCurrent()) return;
+
+      const value = r?.calories_out;
+      _dynamicCaloriesOut = (
+        typeof value === 'number' &&
+        Number.isFinite(value) &&
+        value >= 0
+      ) ? value : null;
+    } catch {
+      if (!isCurrent()) return;
+      _dynamicCaloriesOut = null;
+      // Allow a later load attempt after a failed request.
+      _dynamicGoalDate = null;
+    }
   }
   async function _loadAdaptiveTdee() {
     try {
@@ -479,7 +509,11 @@
     } catch { _adaptiveTdee = null; }
   }
 
-  $: if ($calorieGoalMode === 'dynamic' && $currentDate) _loadDynamicGoal($currentDate);
+  $: if ($calorieGoalMode === 'dynamic' && $currentDate) {
+    _loadDynamicGoal($currentDate);
+  } else {
+    _clearDynamicGoal();
+  }
   $: if ($calorieGoalMode === 'adaptive' && _adaptiveTdee == null) _loadAdaptiveTdee();
 
   // Activity offset — load whenever date changes (gated on the toggle)
@@ -491,7 +525,16 @@
   // stays at its base value (cleanest for fixed-budget / cutting workflows).
   // Macro percentages always use the base goal so protein/carbs/fat targets
   // don't drift when you log a workout.
-  $: _effectiveActive = ($diaryShowActivity && $calorieAdjustFromActivity ? ($activitySummary?.effective || 0) : 0);
+  // Expenditure-based goals must not receive a separate activity top-up.
+  // Keep this rule aligned with WeekStrip, including fallback-goal days.
+  $: _effectiveActive = (
+    $diaryShowActivity &&
+    $calorieAdjustFromActivity &&
+    $calorieGoalMode !== 'dynamic' &&
+    $calorieGoalMode !== 'adaptive'
+      ? ($activitySummary?.effective || 0)
+      : 0
+  );
   $: caloriesGoalAdjusted = caloriesGoal + _effectiveActive;
 
   $: _hasBottomNav = $navStyle === 'bottom' || $navStyle === 'both';

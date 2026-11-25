@@ -266,14 +266,18 @@
   // so a subsequent refreshKey-driven loadWeek() doesn't wipe them.
   let _adjustmentsSeq = 0;
   async function _loadWeekAdjustments() {
-    const needActive  = !!adjustFromActivity;
+    // Match Diary: no activity top-up for expenditure-based modes.
+    const needActive = !!adjustFromActivity &&
+      calorieGoalMode !== 'dynamic' &&
+      calorieGoalMode !== 'adaptive';
     const needDynamic = calorieGoalMode === 'dynamic';
+    // Invalidate pending results even when the new mode needs no fetch.
+    const mySeq = ++_adjustmentsSeq;
     if (!needActive && !needDynamic) {
       goalByDate = new Map();
       activeByDate = new Map();
       return;
     }
-    const mySeq = ++_adjustmentsSeq;
     const dates = _weekIsos(currentDate);
     let activitySums = dates.map(() => ({ effective: 0 }));
     let dynamicOuts  = dates.map(() => ({ calories_out: null }));
