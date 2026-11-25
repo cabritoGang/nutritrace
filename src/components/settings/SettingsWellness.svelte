@@ -4,6 +4,7 @@
   import { _ } from 'svelte-i18n';
   import { slide } from 'svelte/transition';
   import Toggle from './Toggle.svelte';
+  import GarminPersonalSettings from './GarminPersonalSettings.svelte';
   import TimePicker from '../ui/TimePicker.svelte';
   import ConnectionStatus from './ConnectionStatus.svelte';
   import { showSuccess, showError } from '../../stores/toast.js';
@@ -565,6 +566,14 @@
 </script>
 
 <div class="section-body" transition:slide={{ duration: 180 }}>
+
+  {#if !isNativeLocal}
+    <GarminPersonalSettings />
+  {/if}
+
+  {#if !isNativeLocal}
+
+  {/if}
 
   <!-- Master toggle + sync mode -->
   <div class="card settings-card">
